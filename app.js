@@ -39,6 +39,7 @@
 
   const dom = {
     addItemButton: document.getElementById("addItemButton"),
+    reanalyzeAllButton: document.getElementById("reanalyzeAllButton"),
     deleteItemButton: document.getElementById("deleteItemButton"),
     parseItemButton: document.getElementById("parseItemButton"),
     addItemStatButton: document.getElementById("addItemStatButton"),
@@ -81,6 +82,16 @@
       state.selectedItemId = item.id;
       state.slotFilter = "all";
       persistAndRender("Objet ajoute");
+    });
+
+    dom.reanalyzeAllButton.addEventListener("click", () => {
+      let analyzed = 0;
+      state.items.forEach((item) => {
+        if (!item.raw || !item.raw.trim()) return;
+        item.stats = parseTextToStats(item.raw);
+        analyzed += 1;
+      });
+      persistAndRender(analyzed ? `${analyzed} objets analyses` : "Aucun texte a analyser");
     });
 
     dom.deleteItemButton.addEventListener("click", () => {
@@ -767,7 +778,12 @@
   function parseTextToStats(text) {
     const stats = String(text || "")
       .split(/\r?\n/)
-      .map((line) => parseStatLine(line))
+      .flatMap((line) => {
+        const stat = parseStatLine(line);
+        if (!stat) return [];
+        return Array.isArray(stat) ? stat : [stat];
+      })
+      .flatMap(expandCompositeStat)
       .filter(Boolean);
     return compressStats(stats);
   }
@@ -775,8 +791,10 @@
   function parseStatLine(input) {
     let line = String(input || "").trim();
     if (!line) return null;
+    if (/^\{.*\}$/.test(line)) return null;
     line = line
       .replace(/[{}[\]]/g, "")
+      .replace(/([+-]?\d+(?:[.,]\d+)?)(?:\([^)]*\))/g, "$1")
       .replace(/\s+/g, " ")
       .replace(/\s+\(augmented\)$/i, "")
       .replace(/^\d+[.)]\s+/, "")
@@ -788,7 +806,7 @@
     if (addsMatch) {
       const low = parseNumberToken(addsMatch[1]);
       const high = parseNumberToken(addsMatch[3]);
-      const label = cleanLabel(`Adds ${addsMatch[5]} avg`);
+      const label = addedDamageLabel(addsMatch[5]);
       return createStat({ label, value: (low + high) / 2, unit: addsMatch[2] || addsMatch[4] || "" });
     }
 
@@ -796,7 +814,7 @@
     if (frenchAddsMatch) {
       const low = parseNumberToken(frenchAddsMatch[1]);
       const high = parseNumberToken(frenchAddsMatch[3]);
-      const label = cleanLabel(`Adds ${frenchAddsMatch[5]} avg`);
+      const label = addedDamageLabel(frenchAddsMatch[5]);
       return createStat({ label, value: (low + high) / 2, unit: frenchAddsMatch[2] || frenchAddsMatch[4] || "" });
     }
 
@@ -847,18 +865,44 @@
     return null;
   }
 
+  function expandCompositeStat(stat) {
+    const normalized = normalizeStat(stat);
+    const key = canonicalLabelForComparison(normalized.label);
+
+    if (key === "elemental resistances") {
+      return ["Fire Resistance", "Cold Resistance", "Lightning Resistance"].map((label) =>
+        createStat({ label, value: normalized.value, unit: normalized.unit }),
+      );
+    }
+
+    return [normalized];
+  }
+
   function shouldSkipLine(line) {
     return [
       /^[-–—]+$/,
       /^Rarity:/i,
+      /^Rareté:/i,
       /^Item Class:/i,
+      /^Classe d'objet:/i,
       /^Item Level:/i,
+      /^Niveau de l'objet:/i,
       /^Level:/i,
       /^Requires\s/i,
+      /^Prérequis\s*:/i,
       /^Requirements:/i,
       /^Sockets:/i,
+      /^Châsses:/i,
       /^Quality:/i,
+      /^Qualité:/i,
+      /^Dégâts Physiques:/i,
+      /^Dégâts Élémentaires:/i,
+      /^Chances de Touche critique:/i,
+      /^Attaques par seconde:/i,
+      /^Score d'Évasion:/i,
+      /^Bouclier d'énergie:/i,
       /^Corrupted$/i,
+      /^Corrompu$/i,
       /^Mirrored$/i,
       /^Unidentified$/i,
       /^Place into/i,
@@ -921,6 +965,9 @@
         .replace(/\([^)]*\)/g, "")
         .replace(/\b(total|gear|sum)\b/gi, "")
         .replace(/^(to|of)\s+/i, "")
+        .replace(/^(à la|a la|à l'|a l'|d'|d’)\s*/i, "")
+        .replace(/^(aux|au|des|du|de)\s+/i, "")
+        .replace(/^(à|a)\s+/i, "")
         .replace(/\s+as\s+an?\s+extra\s+/i, " extra ")
         .replace(/\s+/g, " ")
         .trim(),
@@ -988,6 +1035,7 @@
 
     if (has("energy", "shield") || has("bouclier", "energie")) {
       if (increased && hasAny("evasion", "evasion")) return "increased evasion and energy shield";
+      if (increased && hasAny("maximum", "maximale", "max")) return "increased maximum energy shield";
       if (increased) return "increased energy shield";
       if (hasAny("maximum", "maximale", "max")) return "maximum energy shield";
       return "energy shield";
@@ -1010,7 +1058,7 @@
     if (projectile && hasAny("speed", "vitesse")) return "increased projectile speed";
 
     if (added && type) {
-      return attack ? `adds ${type} damage to attacks avg` : `adds ${type} damage avg`;
+      return spell ? `adds ${type} damage avg` : `adds ${type} damage to attacks avg`;
     }
 
     if (increased && type && hasAny("damage", "damages", "degat", "degats")) {
@@ -1033,6 +1081,16 @@
     if (hasAny("rarity", "rarete")) return "increased rarity of items found";
 
     return text;
+  }
+
+  function addedDamageLabel(label) {
+    const text = normalizeForSearch(label);
+    const type = damageTypeFor(text);
+    if (!type) return cleanLabel(`Adds ${label} avg`);
+
+    const spell = /\b(spell|spells|sort|sorts)\b/.test(text);
+    const toAttacks = !spell;
+    return `Adds ${titleCase(type)} Damage${toAttacks ? " To Attacks" : ""} Avg`;
   }
 
   function damageTypeFor(text) {

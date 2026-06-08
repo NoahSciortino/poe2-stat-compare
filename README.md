@@ -16,6 +16,8 @@ Tu peux aussi importer un build cible avec le bouton `BUILD`. Il accepte un fich
 
 Les objets copies depuis le jeu en francais sont compares automatiquement avec les builds Mobalytics en anglais pour les stats courantes : vie, resistances, attributs, degats ajoutes, vitesse, armure, evasion et bouclier d'energie.
 
+Si tu importes d'anciennes donnees exportees, utilise le bouton `Tout` dans la colonne Equipement pour recalculer tous les objets avec les dernieres correspondances.
+
 ## Publication GitHub Pages
 
 Avec GitHub Desktop :
