@@ -116,10 +116,17 @@
             <section class="panel target-editor" aria-labelledby="targetEditorTitle">
               <div class="panel-heading">
                 <h2 id="targetEditorTitle">Build cible</h2>
-                <button class="text-button compact subtle" id="addTargetStatButton" type="button">
-                  <span aria-hidden="true">＋</span>
-                  Stat
-                </button>
+                <div class="panel-actions">
+                  <button class="text-button compact subtle" id="importBuildButton" type="button">
+                    <span aria-hidden="true">⇧</span>
+                    BUILD
+                  </button>
+                  <button class="text-button compact subtle" id="addTargetStatButton" type="button">
+                    <span aria-hidden="true">＋</span>
+                    Stat
+                  </button>
+                  <input id="targetBuildFile" type="file" accept=".build,.json,.zip,application/json,application/zip" hidden />
+                </div>
               </div>
 
               <div class="form-grid">

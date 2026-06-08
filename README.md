@@ -12,6 +12,8 @@ Application locale pour comparer les stats de ton equipement Path of Exile 2 ave
 
 Les donnees sont sauvegardees automatiquement dans le navigateur. Les boutons du haut permettent de charger un exemple, exporter, importer ou reinitialiser.
 
+Tu peux aussi importer un build cible avec le bouton `BUILD`. Il accepte un fichier `.build` ou un `.zip` contenant plusieurs fichiers `.build`, comme les exports de build Mobalytics.
+
 ## Publication GitHub Pages
 
 Avec GitHub Desktop :

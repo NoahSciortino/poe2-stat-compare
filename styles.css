@@ -134,10 +134,16 @@ h2 {
 .top-actions,
 .button-row,
 .panel-heading,
+.panel-actions,
 .compare-header {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.panel-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .top-actions {

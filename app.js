@@ -44,6 +44,8 @@
     addItemStatButton: document.getElementById("addItemStatButton"),
     parseTargetButton: document.getElementById("parseTargetButton"),
     addTargetStatButton: document.getElementById("addTargetStatButton"),
+    importBuildButton: document.getElementById("importBuildButton"),
+    targetBuildFile: document.getElementById("targetBuildFile"),
     copyMissingButton: document.getElementById("copyMissingButton"),
     loadSampleButton: document.getElementById("loadSampleButton"),
     exportButton: document.getElementById("exportButton"),
@@ -115,6 +117,8 @@
       persistAndRender("Stat cible ajoutee");
     });
 
+    dom.importBuildButton.addEventListener("click", () => dom.targetBuildFile.click());
+    dom.targetBuildFile.addEventListener("change", importBuildTarget);
     dom.copyMissingButton.addEventListener("click", copyMissingStats);
     dom.loadSampleButton.addEventListener("click", () => {
       state = createSampleState();
@@ -775,6 +779,7 @@
       .replace(/[{}[\]]/g, "")
       .replace(/\s+/g, " ")
       .replace(/\s+\(augmented\)$/i, "")
+      .replace(/^\d+[.)]\s+/, "")
       .trim();
 
     if (shouldSkipLine(line)) return null;
@@ -971,6 +976,218 @@
   function trimNumber(value) {
     if (Number.isInteger(value)) return String(value);
     return String(Math.round(value * 10) / 10);
+  }
+
+  async function importBuildTarget(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    try {
+      const builds = await readBuildsFromFile(file);
+      const selectedBuild = chooseBuild(builds);
+      if (!selectedBuild) return;
+
+      const buildTarget = parseBuildTarget(selectedBuild);
+      state.target = {
+        ...state.target,
+        name: buildTarget.name,
+        className: buildTarget.className,
+        raw: buildTarget.raw,
+        stats: buildTarget.stats,
+      };
+      persistAndRender(`BUILD importe: ${buildTarget.stats.length} stats`);
+    } catch (error) {
+      console.error(error);
+      showToast(error.message === "ZIP_UNSUPPORTED" ? "Zip non supporte, importe un .build" : "BUILD impossible");
+    } finally {
+      dom.targetBuildFile.value = "";
+    }
+  }
+
+  async function readBuildsFromFile(file) {
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+
+    if (isZip(bytes)) {
+      return readBuildsFromZip(buffer);
+    }
+
+    return [{ name: file.name, text: new TextDecoder().decode(bytes) }];
+  }
+
+  function isZip(bytes) {
+    return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+  }
+
+  async function readBuildsFromZip(buffer) {
+    const entries = findZipEntries(buffer).filter((entry) => /\.build$/i.test(entry.name) || /\.json$/i.test(entry.name));
+    const builds = [];
+
+    for (const entry of entries) {
+      const bytes = await readZipEntry(buffer, entry);
+      builds.push({ name: entry.name.split(/[\\/]/).pop(), text: new TextDecoder().decode(bytes) });
+    }
+
+    if (!builds.length) {
+      throw new Error("Aucun fichier BUILD");
+    }
+
+    return builds;
+  }
+
+  function findZipEntries(buffer) {
+    const view = new DataView(buffer);
+    const eocdOffset = findEndOfCentralDirectory(view);
+    if (eocdOffset < 0) throw new Error("Zip invalide");
+
+    const entryCount = view.getUint16(eocdOffset + 10, true);
+    let offset = view.getUint32(eocdOffset + 16, true);
+    const entries = [];
+
+    for (let index = 0; index < entryCount; index += 1) {
+      if (view.getUint32(offset, true) !== 0x02014b50) throw new Error("Zip invalide");
+
+      const flags = view.getUint16(offset + 8, true);
+      const method = view.getUint16(offset + 10, true);
+      const compressedSize = view.getUint32(offset + 20, true);
+      const fileNameLength = view.getUint16(offset + 28, true);
+      const extraLength = view.getUint16(offset + 30, true);
+      const commentLength = view.getUint16(offset + 32, true);
+      const localOffset = view.getUint32(offset + 42, true);
+      const nameBytes = new Uint8Array(buffer, offset + 46, fileNameLength);
+      const name = decodeZipName(nameBytes, flags);
+
+      entries.push({ name, method, compressedSize, localOffset });
+      offset += 46 + fileNameLength + extraLength + commentLength;
+    }
+
+    return entries;
+  }
+
+  function findEndOfCentralDirectory(view) {
+    const minOffset = Math.max(0, view.byteLength - 66000);
+    for (let offset = view.byteLength - 22; offset >= minOffset; offset -= 1) {
+      if (view.getUint32(offset, true) === 0x06054b50) return offset;
+    }
+    return -1;
+  }
+
+  function decodeZipName(bytes) {
+    return new TextDecoder().decode(bytes);
+  }
+
+  async function readZipEntry(buffer, entry) {
+    const view = new DataView(buffer);
+    if (view.getUint32(entry.localOffset, true) !== 0x04034b50) throw new Error("Zip invalide");
+
+    const fileNameLength = view.getUint16(entry.localOffset + 26, true);
+    const extraLength = view.getUint16(entry.localOffset + 28, true);
+    const dataOffset = entry.localOffset + 30 + fileNameLength + extraLength;
+    const compressedBytes = new Uint8Array(buffer, dataOffset, entry.compressedSize);
+
+    if (entry.method === 0) return compressedBytes;
+    if (entry.method !== 8 || typeof DecompressionStream !== "function") {
+      throw new Error("ZIP_UNSUPPORTED");
+    }
+
+    try {
+      const stream = new Blob([compressedBytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    } catch (error) {
+      throw new Error("ZIP_UNSUPPORTED");
+    }
+  }
+
+  function chooseBuild(builds) {
+    if (!builds.length) throw new Error("Aucun BUILD");
+    if (builds.length === 1) return builds[0];
+
+    const defaultIndex = Math.max(
+      builds.findIndex((build) => /crit.*endgame|endgame.*crit/i.test(build.name)),
+      builds.findIndex((build) => /endgame/i.test(build.name)),
+      builds.length - 1,
+    );
+    const choices = builds.map((build, index) => `${index + 1}. ${stripBuildExtension(build.name)}`).join("\n");
+    const answer = window.prompt(`Ce zip contient plusieurs builds:\n${choices}\n\nNumero a importer:`, String(defaultIndex + 1));
+    if (answer === null) return null;
+
+    const selectedIndex = Number.parseInt(answer, 10) - 1;
+    if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= builds.length) {
+      showToast("Choix invalide");
+      return null;
+    }
+
+    return builds[selectedIndex];
+  }
+
+  function parseBuildTarget(build) {
+    const parsed = JSON.parse(build.text);
+    if (!parsed || !Array.isArray(parsed.inventory_slots)) {
+      throw new Error("BUILD invalide");
+    }
+
+    const inventorySlots = parsed.inventory_slots.filter((slot) => slot && slot.additional_text);
+    const raw = buildRawText(parsed, inventorySlots, build.name);
+    const stats = compressStats(inventorySlots.flatMap((slot) => parseTextToStats(slot.additional_text)));
+
+    return {
+      name: parsed.name || stripBuildExtension(build.name),
+      className: inferBuildClass(parsed, build.name),
+      raw,
+      stats,
+    };
+  }
+
+  function buildRawText(build, inventorySlots, fileName) {
+    const title = build.name || stripBuildExtension(fileName);
+    const details = [`Build: ${title}`];
+    if (build.author) details.push(`Auteur: ${build.author}`);
+    if (build.ascendancy) details.push(`Ascendance: ${inferBuildClass(build, fileName)}`);
+
+    const items = inventorySlots.map((slot) => {
+      const slotName = inventorySlotLabel(slot.inventory_id);
+      return `[${slotName}]\n${slot.additional_text}`;
+    });
+
+    return `${details.join("\n")}\n\n${items.join("\n\n")}`;
+  }
+
+  function inferBuildClass(build, fileName) {
+    const text = `${build.name || ""} ${fileName || ""}`;
+    const classMatch = text.match(/\b(Deadeye|Pathfinder|Stormweaver|Chronomancer|Infernalist|Blood Mage|Titan|Warbringer|Witchhunter|Gemling|Invoker|Acolyte)\b/i);
+    if (classMatch) return titleCase(classMatch[1]);
+
+    const ascendancyMap = {
+      Ranger1: "Deadeye",
+      Ranger2: "Pathfinder",
+    };
+
+    return ascendancyMap[build.ascendancy] || build.ascendancy || "";
+  }
+
+  function inventorySlotLabel(inventoryId) {
+    const id = String(inventoryId || "");
+    const slotMap = [
+      [/Weapon/i, "Arme"],
+      [/Offhand/i, "Carquois / offhand"],
+      [/Helm/i, "Casque"],
+      [/BodyArmour/i, "Armure"],
+      [/Gloves/i, "Gants"],
+      [/Boots/i, "Bottes"],
+      [/Belt/i, "Ceinture"],
+      [/Amulet/i, "Amulette"],
+      [/Ring1/i, "Anneau 1"],
+      [/Ring2/i, "Anneau 2"],
+      [/Ring/i, "Anneau"],
+      [/Charm/i, "Charme"],
+      [/Flask/i, "Flasque"],
+    ];
+    const match = slotMap.find(([pattern]) => pattern.test(id));
+    return match ? match[1] : id || "Objet";
+  }
+
+  function stripBuildExtension(name) {
+    return String(name || "Build cible").replace(/\.(build|json)$/i, "");
   }
 
   async function copyMissingStats() {
