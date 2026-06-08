@@ -88,7 +88,7 @@
       let analyzed = 0;
       state.items.forEach((item) => {
         if (!item.raw || !item.raw.trim()) return;
-        item.stats = parseTextToStats(item.raw);
+        applyItemTextAnalysis(item);
         analyzed += 1;
       });
       persistAndRender(analyzed ? `${analyzed} objets analyses` : "Aucun texte a analyser");
@@ -105,9 +105,8 @@
     dom.parseItemButton.addEventListener("click", () => {
       const selected = getSelectedItem();
       if (!selected) return;
-      const stats = parseTextToStats(selected.raw);
-      selected.stats = stats;
-      persistAndRender(stats.length ? "Stats de l'objet analysees" : "Aucune stat detectee");
+      applyItemTextAnalysis(selected);
+      persistAndRender(selected.stats.length ? "Objet analyse" : "Aucune stat detectee");
     });
 
     dom.addItemStatButton.addEventListener("click", () => {
@@ -786,6 +785,157 @@
       .flatMap(expandCompositeStat)
       .filter(Boolean);
     return compressStats(stats);
+  }
+
+  function applyItemTextAnalysis(item) {
+    const metadata = parseItemMetadata(item.raw);
+    if (metadata.name) item.name = metadata.name;
+    if (metadata.slot) item.slot = metadata.slot;
+    if (metadata.rarity) item.rarity = metadata.rarity;
+    item.stats = parseTextToStats(item.raw);
+  }
+
+  function parseItemMetadata(text) {
+    const lines = String(text || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const metadata = {
+      name: "",
+      slot: "",
+      rarity: "",
+    };
+
+    const classLine = lines.find((line) => getHeaderValue(line, ["classe d objet", "item class"]));
+    if (classLine) {
+      const rawClass = getHeaderValue(classLine, ["classe d objet", "item class"]);
+      metadata.slot = slotFromItemClass(rawClass);
+    }
+
+    const rarityIndex = lines.findIndex((line) => getHeaderValue(line, ["rarete", "rarity"]));
+    if (rarityIndex >= 0) {
+      const rawRarity = getHeaderValue(lines[rarityIndex], ["rarete", "rarity"]);
+      metadata.rarity = normalizeRarity(rawRarity);
+      metadata.name = inferItemName(lines, rarityIndex, metadata.slot);
+    }
+
+    return metadata;
+  }
+
+  function getHeaderValue(line, acceptedHeaders) {
+    const separatorIndex = String(line || "").indexOf(":");
+    if (separatorIndex < 0) return "";
+
+    const header = normalizeForSearch(String(line).slice(0, separatorIndex));
+    if (!acceptedHeaders.includes(header)) return "";
+
+    return String(line).slice(separatorIndex + 1).trim();
+  }
+
+  function inferItemName(lines, rarityIndex, slot) {
+    const candidates = [];
+
+    for (let index = rarityIndex + 1; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (isItemHeaderStopLine(line)) break;
+      if (isDecorativeItemLine(line)) continue;
+      candidates.push(line);
+      if (candidates.length >= 3) break;
+    }
+
+    if (!candidates.length) return "";
+    if (candidates.length === 1) return cleanItemName(candidates[0]);
+
+    const slotClass = normalizeForSearch(slot);
+    const baseIndex = candidates.findIndex((candidate) => isLikelyBaseType(candidate, slotClass));
+    const nameIndex = baseIndex > 0 ? baseIndex - 1 : 0;
+    return cleanItemName(candidates[nameIndex]);
+  }
+
+  function isItemHeaderStopLine(line) {
+    return (
+      /^[-–—]+$/.test(line) ||
+      /^(Score d'Évasion|Bouclier d'énergie|Armour|Armor|Evasion Rating|Energy Shield|Prérequis|Requires|Niveau de l'objet|Item Level|Qualité|Quality|Châsses|Sockets|Dégâts|Damage|Chances de Touche critique|Critical Hit Chance|Attaques par seconde|Attacks per Second)\s*:/i.test(line) ||
+      /^\{/.test(line)
+    );
+  }
+
+  function isDecorativeItemLine(line) {
+    return /^(Classe d'objet|Item Class|Rareté|Rarity)\s*:/i.test(line);
+  }
+
+  function isLikelyBaseType(line, slotClass) {
+    const text = normalizeForSearch(line);
+    const baseWords = [
+      "arc",
+      "bow",
+      "carquois",
+      "quiver",
+      "bottes",
+      "boots",
+      "ceinture",
+      "belt",
+      "gants",
+      "gloves",
+      "brassards",
+      "bracers",
+      "amulette",
+      "amulet",
+      "armure",
+      "armor",
+      "armour",
+      "tunique",
+      "vest",
+      "anneau",
+      "bague",
+      "ring",
+      "casque",
+      "helm",
+      "helmet",
+      "tiare",
+      "cap",
+      "wand",
+      "sceptre",
+      "staff",
+      "shield",
+      "bouclier",
+      "focus",
+    ];
+
+    if (slotClass && text.includes(slotClass)) return true;
+    return baseWords.some((word) => text.includes(word));
+  }
+
+  function cleanItemName(name) {
+    return String(name || "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function normalizeRarity(rarity) {
+    const text = normalizeForSearch(rarity);
+    if (text.includes("normal")) return "Normal";
+    if (text.includes("magic") || text.includes("magique")) return "Magic";
+    if (text.includes("rare")) return "Rare";
+    if (text.includes("unique")) return "Unique";
+    if (text.includes("currency") || text.includes("monnaie")) return "Currency";
+    return rarity ? titleCase(String(rarity).trim()) : "";
+  }
+
+  function slotFromItemClass(itemClass) {
+    const text = normalizeForSearch(itemClass);
+    if (/(bow|arc|wand|sceptre|scepter|staff|quarterstaff|crossbow|mace|sword|axe|dagger|claw|spear|flail)/.test(text)) return "Arme";
+    if (/(quiver|carquois|shield|bouclier|focus|offhand)/.test(text)) return "Bouclier / focus";
+    if (/(helmet|helm|casque)/.test(text)) return "Casque";
+    if (/(body armour|body armor|armour|armor|armure|tunique|vest)/.test(text)) return "Armure";
+    if (/(gloves|gants|bracers|brassards)/.test(text)) return "Gants";
+    if (/(boots|bottes)/.test(text)) return "Bottes";
+    if (/(belt|ceinture)/.test(text)) return "Ceinture";
+    if (/(amulet|amulette)/.test(text)) return "Amulette";
+    if (/(ring|rings|bague|bagues|anneau)/.test(text)) return "Anneau 1";
+    if (/(charm|charme)/.test(text)) return "Charme";
+    return "Autre";
   }
 
   function parseStatLine(input) {
