@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PoE2 Stat Compare</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span>
+          </div>
+          <div>
+            <h1>PoE2 Stat Compare</h1>
+            <p>Equipement actuel vs build Mobalytics</p>
+          </div>
+        </div>
+
+        <div class="top-actions">
+          <button class="icon-button" id="loadSampleButton" type="button" title="Charger un exemple" aria-label="Charger un exemple">
+            <span aria-hidden="true">★</span>
+          </button>
+          <button class="icon-button" id="exportButton" type="button" title="Exporter" aria-label="Exporter">
+            <span aria-hidden="true">⇩</span>
+          </button>
+          <button class="icon-button" id="importButton" type="button" title="Importer" aria-label="Importer">
+            <span aria-hidden="true">⇧</span>
+          </button>
+          <button class="icon-button danger" id="resetButton" type="button" title="Reinitialiser" aria-label="Reinitialiser">
+            <span aria-hidden="true">×</span>
+          </button>
+          <input id="importFile" type="file" accept="application/json" hidden />
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="sidebar" aria-label="Equipement">
+          <div class="panel-heading">
+            <h2>Equipement</h2>
+            <button class="text-button compact" id="addItemButton" type="button">
+              <span aria-hidden="true">＋</span>
+              Objet
+            </button>
+          </div>
+
+          <div class="slot-filter" id="slotFilter" role="tablist" aria-label="Filtres equipement"></div>
+          <div class="item-list" id="itemList"></div>
+        </aside>
+
+        <section class="editor" aria-label="Edition">
+          <div class="editor-grid">
+            <section class="panel item-editor" aria-labelledby="itemEditorTitle">
+              <div class="panel-heading">
+                <h2 id="itemEditorTitle">Objet selectionne</h2>
+                <button class="text-button compact danger" id="deleteItemButton" type="button">
+                  <span aria-hidden="true">−</span>
+                  Retirer
+                </button>
+              </div>
+
+              <div class="form-grid">
+                <label>
+                  Nom
+                  <input id="itemName" type="text" autocomplete="off" />
+                </label>
+                <label>
+                  Emplacement
+                  <select id="itemSlot"></select>
+                </label>
+                <label>
+                  Rarete
+                  <select id="itemRarity">
+                    <option value="Normal">Normal</option>
+                    <option value="Magic">Magic</option>
+                    <option value="Rare">Rare</option>
+                    <option value="Unique">Unique</option>
+                    <option value="Currency">Currency</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="textarea-label">
+                Texte de l'objet
+                <textarea id="itemRaw" spellcheck="false"></textarea>
+              </label>
+
+              <div class="button-row">
+                <button class="text-button" id="parseItemButton" type="button">
+                  <span aria-hidden="true">⌁</span>
+                  Analyser
+                </button>
+                <button class="text-button subtle" id="addItemStatButton" type="button">
+                  <span aria-hidden="true">＋</span>
+                  Stat
+                </button>
+              </div>
+
+              <div class="stat-table-wrap">
+                <table class="stat-editor-table" aria-label="Stats de l'objet">
+                  <thead>
+                    <tr>
+                      <th>Stat</th>
+                      <th>Valeur</th>
+                      <th>Unite</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="itemStatsBody"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel target-editor" aria-labelledby="targetEditorTitle">
+              <div class="panel-heading">
+                <h2 id="targetEditorTitle">Build cible</h2>
+                <button class="text-button compact subtle" id="addTargetStatButton" type="button">
+                  <span aria-hidden="true">＋</span>
+                  Stat
+                </button>
+              </div>
+
+              <div class="form-grid">
+                <label>
+                  Nom du build
+                  <input id="targetName" type="text" autocomplete="off" />
+                </label>
+                <label>
+                  Classe
+                  <input id="targetClass" type="text" autocomplete="off" />
+                </label>
+                <label>
+                  Lien Mobalytics
+                  <input id="targetUrl" type="url" autocomplete="off" />
+                </label>
+              </div>
+
+              <label class="textarea-label">
+                Stats Mobalytics
+                <textarea id="targetRaw" spellcheck="false"></textarea>
+              </label>
+
+              <div class="button-row">
+                <button class="text-button" id="parseTargetButton" type="button">
+                  <span aria-hidden="true">⌁</span>
+                  Analyser
+                </button>
+                <button class="text-button subtle" id="copyMissingButton" type="button">
+                  <span aria-hidden="true">≡</span>
+                  Copier manques
+                </button>
+              </div>
+
+              <div class="stat-table-wrap">
+                <table class="stat-editor-table" aria-label="Stats du build cible">
+                  <thead>
+                    <tr>
+                      <th>Stat</th>
+                      <th>Valeur</th>
+                      <th>Unite</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="targetStatsBody"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <section class="compare-panel" aria-labelledby="compareTitle">
+            <div class="compare-header">
+              <div>
+                <h2 id="compareTitle">Comparaison</h2>
+                <p id="summaryLine"></p>
+              </div>
+              <div class="segmented" id="categoryFilter" role="tablist" aria-label="Categories"></div>
+            </div>
+
+            <div class="summary-grid" id="summaryCards"></div>
+
+            <div class="stat-table-wrap compare-table-wrap">
+              <table class="compare-table" aria-label="Comparaison des stats">
+                <thead>
+                  <tr>
+                    <th>Stat</th>
+                    <th>Equipement</th>
+                    <th>Build</th>
+                    <th>Ecart</th>
+                    <th>Progression</th>
+                  </tr>
+                </thead>
+                <tbody id="comparisonBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </main>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
