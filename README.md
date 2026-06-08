@@ -14,6 +14,8 @@ Les donnees sont sauvegardees automatiquement dans le navigateur. Les boutons du
 
 Tu peux aussi importer un build cible avec le bouton `BUILD`. Il accepte un fichier `.build` ou un `.zip` contenant plusieurs fichiers `.build`, comme les exports de build Mobalytics.
 
+Les objets copies depuis le jeu en francais sont compares automatiquement avec les builds Mobalytics en anglais pour les stats courantes : vie, resistances, attributs, degats ajoutes, vitesse, armure, evasion et bouclier d'energie.
+
 ## Publication GitHub Pages
 
 Avec GitHub Desktop :

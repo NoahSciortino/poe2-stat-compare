@@ -792,6 +792,14 @@
       return createStat({ label, value: (low + high) / 2, unit: addsMatch[2] || addsMatch[4] || "" });
     }
 
+    const frenchAddsMatch = line.match(/^Ajoute\s+([+-]?\d[\d\s,.]*)(%)?\s+(?:à|a)\s+([+-]?\d[\d\s,.]*)(%)?\s+(.+)$/i);
+    if (frenchAddsMatch) {
+      const low = parseNumberToken(frenchAddsMatch[1]);
+      const high = parseNumberToken(frenchAddsMatch[3]);
+      const label = cleanLabel(`Adds ${frenchAddsMatch[5]} avg`);
+      return createStat({ label, value: (low + high) / 2, unit: frenchAddsMatch[2] || frenchAddsMatch[4] || "" });
+    }
+
     const labelRangeMatch = line.match(/^(.+?):\s*([+-]?\d[\d\s,.]*)(%)?\s*(?:-|to|a)\s*([+-]?\d[\d\s,.]*)(%)?/i);
     if (labelRangeMatch) {
       const low = parseNumberToken(labelRangeMatch[2]);
@@ -815,6 +823,15 @@
         label: cleanLabel(numberFirstMatch[3]),
         value: parseNumberToken(numberFirstMatch[1]),
         unit: numberFirstMatch[2] || "",
+      });
+    }
+
+    const embeddedValueMatch = line.match(/^(.+?)\s+([+-]?\d[\d\s,.]*[kKmM]?)(%)\s+(.+)$/);
+    if (embeddedValueMatch) {
+      return createStat({
+        label: cleanLabel(`${embeddedValueMatch[1]} ${embeddedValueMatch[4]}`),
+        value: parseNumberToken(embeddedValueMatch[2]),
+        unit: embeddedValueMatch[3] || "",
       });
     }
 
@@ -924,7 +941,7 @@
   }
 
   function canonicalKey(label, unit) {
-    return `${normalizeForSearch(label)}|${unit || ""}`;
+    return `${canonicalLabelForComparison(label)}|${unit || ""}`;
   }
 
   function normalizeForSearch(value) {
@@ -936,8 +953,99 @@
       .trim();
   }
 
-  function categoryFor(label) {
+  function canonicalLabelForComparison(label) {
     const text = normalizeForSearch(label);
+    const has = (...words) => words.every((word) => text.includes(word));
+    const hasAny = (...words) => words.some((word) => text.includes(word));
+    const increased = hasAny("increased", "augmentation", "augmente", "augmentes", "augmentee", "augmentees");
+    const added = hasAny("adds", "ajoute", "ajout");
+    const attack = hasAny("attack", "attacks", "attaque", "attaques");
+    const projectile = hasAny("projectile", "projectiles");
+    const spell = hasAny("spell", "spells", "sort", "sorts");
+    const cast = hasAny("cast", "incantation");
+    const bow = hasAny("bow", "bows", "arc", "arcs");
+    const type = damageTypeFor(text);
+
+    if (hasAny("resistance", "resistances")) {
+      if (hasAny("fire", "feu")) return "fire resistance";
+      if (hasAny("cold", "froid", "glace")) return "cold resistance";
+      if (hasAny("lightning", "foudre")) return "lightning resistance";
+      if (hasAny("chaos")) return "chaos resistance";
+      if (hasAny("elemental", "elementaire", "elementaires")) return "elemental resistances";
+    }
+
+    if (hasAny("strength", "force")) return "strength";
+    if (hasAny("dexterity", "dexterite")) return "dexterity";
+    if (hasAny("intelligence")) return "intelligence";
+    if (hasAny("spirit", "esprit")) return "spirit";
+    if (hasAny("mana")) return "mana";
+
+    if (hasAny("life", "vie")) {
+      if (hasAny("maximum", "maximale", "max")) return "maximum life";
+      if (hasAny("regeneration", "regen")) return "life regeneration";
+      return "life";
+    }
+
+    if (has("energy", "shield") || has("bouclier", "energie")) {
+      if (increased && hasAny("evasion", "evasion")) return "increased evasion and energy shield";
+      if (increased) return "increased energy shield";
+      if (hasAny("maximum", "maximale", "max")) return "maximum energy shield";
+      return "energy shield";
+    }
+
+    if (hasAny("evasion", "esquive")) {
+      if (increased && (has("energy", "shield") || has("bouclier", "energie"))) return "increased evasion and energy shield";
+      if (increased) return "increased evasion rating";
+      return "evasion rating";
+    }
+
+    if (hasAny("armour", "armor", "armure")) {
+      if (increased) return "increased armour";
+      return "armour";
+    }
+
+    if (hasAny("movement", "mouvement", "deplacement") && hasAny("speed", "vitesse")) return "increased movement speed";
+    if (attack && hasAny("speed", "vitesse")) return "increased attack speed";
+    if ((spell || cast) && hasAny("speed", "vitesse", "incantation")) return "increased cast speed";
+    if (projectile && hasAny("speed", "vitesse")) return "increased projectile speed";
+
+    if (added && type) {
+      return attack ? `adds ${type} damage to attacks avg` : `adds ${type} damage avg`;
+    }
+
+    if (increased && type && hasAny("damage", "damages", "degat", "degats")) {
+      return `increased ${type} damage`;
+    }
+
+    if (increased && spell && hasAny("damage", "damages", "degat", "degats")) return "increased spell damage";
+    if (increased && projectile && hasAny("damage", "damages", "degat", "degats")) return "increased projectile damage";
+    if (increased && bow && hasAny("damage", "damages", "degat", "degats")) return "increased damage with bow skills";
+    if (hasAny("critical", "critique", "critiques") && hasAny("chance", "chances")) return "critical hit chance";
+    if (hasAny("critical", "critique", "critiques") && hasAny("damage", "damages", "degat", "degats")) return "critical damage";
+
+    if (hasAny("level", "niveau") && attack) return "level of all attack skills";
+    if (hasAny("level", "niveau") && projectile) return "level of all projectile skills";
+    if (hasAny("level", "niveau") && spell) return "level of all spell skills";
+    if (hasAny("level", "niveau") && hasAny("skill", "skills", "aptitude", "aptitudes")) return "level of all skills";
+
+    if (hasAny("recovery", "recuperation") && hasAny("instantly", "instantanement")) return "recovery applied instantly";
+    if (hasAny("recovery", "recuperation") && (increased || hasAny("rate", "taux"))) return "increased recovery rate";
+    if (hasAny("rarity", "rarete")) return "increased rarity of items found";
+
+    return text;
+  }
+
+  function damageTypeFor(text) {
+    if (/\b(lightning|foudre)\b/.test(text)) return "lightning";
+    if (/\b(fire|feu)\b/.test(text)) return "fire";
+    if (/\b(cold|froid|glace)\b/.test(text)) return "cold";
+    if (/\b(physical|physique|physiques)\b/.test(text)) return "physical";
+    if (/\b(chaos)\b/.test(text)) return "chaos";
+    return "";
+  }
+
+  function categoryFor(label) {
+    const text = canonicalLabelForComparison(label);
     if (/\b(resistance|resistances|resist)\b/.test(text)) return "resistance";
     if (/\b(strength|dexterity|intelligence|attribute|attributes)\b/.test(text)) return "attributes";
     if (/\b(damage|attack|spell|cast|critical|crit|dps|accuracy|projectile|melee|physical|fire|cold|lightning|chaos|poison|ignite|bleed)\b/.test(text)) {
